@@ -20,12 +20,12 @@ use std::time::Duration;
 
 const MAX_WAIT: Duration = Duration::from_secs(10);
 
-pub async fn connect_http(
-    interface: Option<&[u8]>,
-    host: &str,
-    port: u16,
-    request: Request,
-) -> anyhow::Result<Response> {
+pub async fn connect_http(interface: Option<&[u8]>, request: Request) -> anyhow::Result<Response> {
+    let host = match request.url().host_str() {
+        None => bail!("http error: no host specified"),
+        Some(host) => host,
+    };
+    let port = request.url().port().unwrap_or(80);
     let tcp_stream = connect_tcp(interface, host, port).await?;
     let response = match async_h1::connect(tcp_stream, request).await {
         Ok(response) => response,
@@ -37,10 +37,13 @@ pub async fn connect_http(
 pub async fn connect_https(
     config: Arc<ClientConfig>,
     interface: Option<&[u8]>,
-    host: &str,
-    port: u16,
     request: Request,
 ) -> anyhow::Result<Response> {
+    let host = match request.url().host_str() {
+        None => bail!("https error: no host specified"),
+        Some(host) => host,
+    };
+    let port = request.url().port().unwrap_or(443);
     let tls_stream = connect_tls(config, interface, host, port).await?;
     let response = match async_h1::connect(tls_stream, request).await {
         Ok(response) => response,
