@@ -20,6 +20,20 @@ use std::time::Duration;
 
 const MAX_WAIT: Duration = Duration::from_secs(10);
 
+pub async fn connect_http(
+    interface: Option<&[u8]>,
+    host: &str,
+    port: u16,
+    request: Request,
+) -> anyhow::Result<Response> {
+    let tcp_stream = connect_tcp(interface, host, port).await?;
+    let response = match async_h1::connect(tcp_stream, request).await {
+        Ok(response) => response,
+        Err(err) => bail!("http error: {:?}", err),
+    };
+    Ok(response)
+}
+
 pub async fn connect_https(
     config: Arc<ClientConfig>,
     interface: Option<&[u8]>,
@@ -30,7 +44,7 @@ pub async fn connect_https(
     let tls_stream = connect_tls(config, interface, host, port).await?;
     let response = match async_h1::connect(tls_stream, request).await {
         Ok(response) => response,
-        Err(err) => bail!("http error: {:?}", err),
+        Err(err) => bail!("https error: {:?}", err),
     };
     Ok(response)
 }
