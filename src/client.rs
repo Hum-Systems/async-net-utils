@@ -20,6 +20,18 @@ use std::time::Duration;
 
 const MAX_WAIT: Duration = Duration::from_secs(10);
 
+pub async fn connect_http_or_https(
+    config: Arc<ClientConfig>,
+    interface: Option<&[u8]>,
+    request: Request,
+) -> anyhow::Result<Response> {
+    match request.url().scheme() {
+        "http" => connect_http(interface, request).await,
+        "https" => connect_https(config, interface, request).await,
+        scheme => Err(anyhow!("unexpected scheme: {:?}", scheme)),
+    }
+}
+
 pub async fn connect_http(interface: Option<&[u8]>, request: Request) -> anyhow::Result<Response> {
     let host = match request.url().host_str() {
         None => bail!("http error: no host specified"),
