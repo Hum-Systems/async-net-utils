@@ -1,0 +1,15 @@
+[package]
+name = "async-net-utils"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+async-std = "*"
+socket2 = "*"
+libc = "*"
+async-io = "*"
+async-rustls = "*"
+anyhow = "*"
+async-tungstenite = "*"
+async-h1 = "*"
+http-types = "*"
