@@ -24,21 +24,26 @@ pub async fn connect_http_or_https(
     config: Arc<ClientConfig>,
     interface: Option<&[u8]>,
     request: Request,
+    tos: u32,
 ) -> anyhow::Result<Response> {
     match request.url().scheme() {
-        "http" => connect_http(interface, request).await,
-        "https" => connect_https(config, interface, request).await,
+        "http" => connect_http(interface, request, tos).await,
+        "https" => connect_https(config, interface, request, tos).await,
         scheme => Err(anyhow!("unexpected scheme: {:?}", scheme)),
     }
 }
 
-pub async fn connect_http(interface: Option<&[u8]>, request: Request) -> anyhow::Result<Response> {
+pub async fn connect_http(
+    interface: Option<&[u8]>,
+    request: Request,
+    tos: u32,
+) -> anyhow::Result<Response> {
     let host = match request.url().host_str() {
         None => bail!("http error: no host specified"),
         Some(host) => host,
     };
     let port = request.url().port().unwrap_or(80);
-    let tcp_stream = connect_tcp(interface, host, port).await?;
+    let tcp_stream = connect_tcp(interface, host, port, tos).await?;
     let response = match async_h1::connect(tcp_stream, request).await {
         Ok(response) => response,
         Err(err) => bail!("http error: {:?}", err),
@@ -50,13 +55,14 @@ pub async fn connect_https(
     config: Arc<ClientConfig>,
     interface: Option<&[u8]>,
     request: Request,
+    tos: u32,
 ) -> anyhow::Result<Response> {
     let host = match request.url().host_str() {
         None => bail!("https error: no host specified"),
         Some(host) => host,
     };
     let port = request.url().port().unwrap_or(443);
-    let tls_stream = connect_tls(config, interface, host, port).await?;
+    let tls_stream = connect_tls(config, interface, host, port, tos).await?;
     let response = match async_h1::connect(tls_stream, request).await {
         Ok(response) => response,
         Err(err) => bail!("https error: {:?}", err),
@@ -69,8 +75,9 @@ pub async fn connect_wss(
     interface: Option<&[u8]>,
     host: &str,
     port: u16,
+    tos: u32,
 ) -> anyhow::Result<WebSocketStream<TlsStream<TcpStream>>> {
-    let tls_stream = connect_tls(config, interface, host, port).await?;
+    let tls_stream = connect_tls(config, interface, host, port, tos).await?;
     let mut cfg = WebSocketConfig::default();
     cfg.max_send_queue = Some(1);
     let ws_url = format!("wss://{}:{}", host, port);
@@ -83,8 +90,9 @@ pub async fn connect_tls(
     interface: Option<&[u8]>,
     host: &str,
     port: u16,
+    tos: u32,
 ) -> anyhow::Result<TlsStream<TcpStream>> {
-    let tcp_stream = connect_tcp(interface, host, port).await?;
+    let tcp_stream = connect_tcp(interface, host, port, tos).await?;
     let dns_name_ref = DNSNameRef::try_from_ascii_str(host)?;
     let tls_connector = TlsConnector::from(config);
     let tls_stream = tls_connector.connect(dns_name_ref, tcp_stream).await?;
@@ -95,13 +103,14 @@ pub async fn connect_tcp(
     interface: Option<&[u8]>,
     host: &str,
     port: u16,
+    tos: u32,
 ) -> anyhow::Result<TcpStream> {
     let addrs_fut = (host, port).to_socket_addrs();
     let addrs: std::vec::IntoIter<std::net::SocketAddr> = timeout(MAX_WAIT, addrs_fut).await??;
 
     let mut last_err: Option<anyhow::Error> = None;
     for addr in addrs {
-        match timeout(MAX_WAIT, connect_tcp_addr(interface, addr)).await {
+        match timeout(MAX_WAIT, connect_tcp_addr(interface, addr, tos)).await {
             Ok(result) => match result {
                 Ok(stream) => return Ok(stream),
                 Err(err) => last_err = Some(err.into()),
@@ -112,11 +121,16 @@ pub async fn connect_tcp(
     Err(last_err.unwrap_or(anyhow!("could not resolve to any address")))
 }
 
-async fn connect_tcp_addr(interface: Option<&[u8]>, addr: SocketAddr) -> io::Result<TcpStream> {
+async fn connect_tcp_addr(
+    interface: Option<&[u8]>,
+    addr: SocketAddr,
+    tos: u32,
+) -> io::Result<TcpStream> {
     let domain = Domain::for_address(addr);
 
     let tcp_socket = Socket::new(domain, Type::STREAM.nonblocking(), Some(Protocol::TCP))?;
     tcp_socket.bind_device(interface)?;
+    tcp_socket.set_tos(tos)?;
 
     match tcp_socket.connect(&addr.into()) {
         Ok(_) => {}
