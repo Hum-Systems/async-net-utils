@@ -93,7 +93,10 @@ pub async fn connect_tls(
     tos: u32,
 ) -> anyhow::Result<TlsStream<TcpStream>> {
     let tcp_stream = connect_tcp(interface, host, port, tos).await?;
-    let dns_name_ref = DNSNameRef::try_from_ascii_str(host)?;
+    let dns_name_ref = match DNSNameRef::try_from_ascii_str(host) {
+        Ok(dns_name_ref) => dns_name_ref,
+        Err(_) => DNSNameRef::try_from_ascii_str("invalid").unwrap(),
+    };
     let tls_connector = TlsConnector::from(config);
     let tls_stream = tls_connector.connect(dns_name_ref, tcp_stream).await?;
     Ok(tls_stream)
